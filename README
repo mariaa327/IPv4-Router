@@ -1,0 +1,41 @@
+Aplicatia ruleaza intr-o bucla infinita si proceseaza fiecare pachet primit in functie de tipul sau adica IP sau ARP. Logica este impartita pe componente fiecare responsabila pentru o parte a comportamentului routerului.
+
+<ARP>
+- ARP REQUEST: este generat atunci camd routerul trebuie sa trimita un pachet mai departe dar nu cunoaste adresa MAC a urmatorului hop. Se construieste un pachet ARP broadcast pentru a afla MAC-ul asociat IP-ului
+
+- ARP REPLY: este generat atunci cand routerul primeste un request pentru una dintre adresele sale IP. Routerul raspunde direct cu MAC-ul interfetei respective
+
+- actualizarea tabelei ARP: se face atunci cand routerul primeste un ARP reply si se salveaza perechea IP-MAC si se incearca trimiterea pachetelor care asteptau aceasta informatie
+
+- am ales sa folosesc o coada de pachete pentru situatiile in care MAC-ul nu este cunoscut. Astfel pachetele nu sunt pierdute, ci sunt trimise ulterior cand informatia devine disponibila
+
+<FORWARDING> - pentru procesarea completa a pachetelor IPv4
+Pasi de rezolvare:
+- se verifica checksum-ul IP pentru a detecta eventuae coruperi
+- se verifica daca routerul este destinatia finala daca da si este ICMP Request se trimite Reply
+- se verifica ttl-ul daca este <= 1 se trimite ICMP Tima Exceeded
+- se cauta o ruta in tabela de rutare daca nu exista se trimite ICMP Destination Unreachable
+
+In cazul in care pachetul nu poate fi forwardat ttl-ul este decrementat, checksum-ul este recalculat, se determina mac-ul urmatorului hop
+Daca MAC-ul este cunoscut pachetul este trimis imediat. Daca MAC-ul este necunoscut pachetul este pus in coada si se trimite ARP request.
+
+Am ales aceasta rezolvare deoarece arata comportamentul real al routerelor si evita pierderea pachetelor.
+
+<LPM>
+Am vrut sa implementez LPM pe baza unei sortari a tabelei de rutare si o cautare binara. Tabela este sortat dupa prefix si masca astfel incat sa realizeze o cautare eficienta. Am ales aceasta metoda deoarece este mai simpla decat un trie si ofera o performanta buna de O(logn).
+
+<ICMP>
+Routerul implementeaza trei tipuri de mesaje: Echo Reply (raspuns la ping si reutilizeaza datele din pachetul original), Time Exceeded (generat cand ttl ajunge la 0 si include headerul IP original plus primii 8 bytes din payload), Destination Unreachable (generat cand nu exista ruta catre destinatie).
+
+Pentru mesajele de eroare am ales sa construiesc un pachet nou si sa copiez informatiile relevante din pachetul original ceea ce simplifica implementarea.
+
+<Coada de pachete> - utilizata pentru a stoca temporar pachete care nu pot fi trimise din cauza lipsei unei intrari ARP. La primirea unui ARP Reply se parcurge coada, pachetele care pit fi acum trimise sunt forwardate, restul raman in coada.
+
+Nu am folosit structuri mai complexe cum ar fi trie deoarece este suficienta aceasta cautare binara pentru aceasta tema si este mai usor de implemenatat si de facut debug.
+
+Poza pentru Subiectul 1: Se ilustreaza procesul de dirijare implementat in router. Initial host-ul trimite un ARP Request pentru a afla MAC-ul gateway-ului iar routerul raspunde cu ARP Reply. Ulterior pachetul ICMP Echo Request este trimis catre destinatie iar routerul in proceseaza si il forwardeaza conform tabelei de rutare. Pentru a trimite mai departe pachetul routerul foloseste ARP pentru a rezolva MAC-ul next hop-ului, utilizand coada daca acesta nu este cunoscut. Dupa primirea ARP Reply, pachetul este transmis, iar destinatia raspunde cu ICMP Echo Reply.
+
+Poza pentru Subiectul 2: Se ilustreaza o incepere in care tabelele ARP sunt initial goale. La primul ping inainte de trimiterea pachetului ICMP Echo Request, hostul trebuie sa afle adresa MAC a routerului prin ARP(pachetele 1 si 2). Ulterior routerul trebuie la randul sau sa afle MAC ul hostului pentru a putea trimite raspunsul generand pachetel ARP 4 si 5.
+La al doilea ping pachetele sunt transmise direct fara mesaje ARP suplimentare ceea ce demonstreaza ca tabela ARP a fost populata si este reutilizata. In final apar si pachete ARP suplimentare specifice mecanismului de refresh al sistemului, fara a afecta procesul de dirijare.
+
+Poza pentru Subiectul 3: In primul caz pachetul ICMP este trimis cu TTL=1 iar routerul detecteaza expirarea acestuia si raspunde cu un mesaj ICMP Time Exceeded, fara a mai forwarda pachetul. In al doilea caz se incearca trimiterea unui pachet catre o destinatie pentru care nu exista in tabela de rutare, iar routerul genereaza un mesaj ICMP Destination Unreachable. Acestea confirma implementarea corecta a verificarilor TTL si a cautarii rutei. In final este procesat un ping valid si demonstreaza ca routerul poate face diferente intre cazurile valide si cele care ar da eroare.
